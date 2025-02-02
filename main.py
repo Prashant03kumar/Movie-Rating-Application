@@ -1,4 +1,4 @@
-from flask import Flask, render_template, redirect, url_for, request
+from flask import Flask, render_template, redirect, url_for, request,session
 from flask_bootstrap import Bootstrap5
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -67,8 +67,14 @@ class AddMovieForm(FlaskForm):
 @app.route("/")
 def home():
     # READ ALL THE RECORDS 
-    result=db.session.execute(db.select(Movie).order_by(Movie.ranking))
+    result=db.session.execute(db.select(Movie).order_by(Movie.rating))
     all_movies=result.scalars().all()
+    for i in range(len(all_movies)):# 3
+        all_movies[i].ranking=len(all_movies)-i
+
+        db.session.commit()
+        
+
     return render_template("index.html",movies=all_movies)
 
 @app.route("/edit",methods=['GET','POST'])
@@ -104,46 +110,45 @@ def add():
     form=AddMovieForm()
     if form.validate_on_submit():
         movie_title=form.movie_title.data
+        session['movie_title'] = movie_title
         response=requests.get(MOVIES_URL,params={"api_key":API_KEY,"query":movie_title})
         data=response.json()["results"]
-        ##print(f"ADD DATA : {data}")
-        # print(len(data), type(data))
+        print(f"ADD DATA : {data}")
 
-
-        for i in range(len(data)):
-            if(data[i]["id"] == 829860):
-                print(data[i])
-
-        response_2 = requests.get(MOVIES_URL, params={"api_key": API_KEY, "query": 829860})
-        print(f"Resoposne 2 : {response_2.json()}")
         return render_template("select.html",options=data)
     return render_template("add.html",form=form)
 
 
-@app.route("/find")
+@app.route("/find", methods=['GET'])
 def find_movie():
     movie_api_id = request.args.get("id")
-    if movie_api_id:
-        print(movie_api_id)
-        movie_api_url = f"{MOVIES_URL}".replace("?include_adult=false&language=en-US&page=1","")
-        movie_api_url= f"{movie_api_url}/{829860}?include_adult=false&language=en-US&page=1"
-        print(movie_api_url)
-        #The language parameter is optional, if you were making the website for a different audience 
-        #e.g. Hindi speakers then you might choose "hi-IN"
-        response = requests.get(movie_api_url, params={"api_key": API_KEY, "language": "en-US"})
-        print(response)
-        data = response.json()
-        print(f"DATA : {data}")
-        new_movie = Movie(
-            title=data["title"],
-            #The data in release_date includes month and day, we will want to get rid of.
-            year=data["release_date"].split("-")[0],
-            img_url=f"{MOVIE_DB_IMAGE_URL}{data['poster_path']}",
-            description=data["overview"]
-        )
-        db.session.add(new_movie)
-        db.session.commit()
+    # print(f"THE TYPE OF ID IS: {type(movie_api_id)}")
+    movie_title = session.get('movie_title')  # Retrieve the movie title from the session
+    # print(movie_title)
+
+    if movie_api_id and movie_title:
+        print(f"THE MOVIE ID: {movie_api_id}\n")
+        response = requests.get(MOVIES_URL, params={"api_key": API_KEY, "query": movie_title})
+        data = response.json()["results"]
+        # print(f"DATA : {data}")
+
+        # Now find the movie in the response data based on the ID
+        for movie in data:
+            print("WE ARE IN LOOP----------------------------")
+            if str(movie["id"]) == movie_api_id:
+                new_movie = Movie(
+                    title=movie["title"],
+                    year=movie["release_date"].split("-")[0],
+                    img_url=f"{MOVIE_DB_IMAGE_URL}{movie['poster_path']}",
+                    description=movie["overview"]
+                )
+                db.session.add(new_movie)
+                db.session.commit()
+                break
+
         return redirect(url_for("home"))
+    else:
+        return redirect(url_for("home"))  # Redirect to home if no movie_title or movie_api_id
 
 if __name__ == '__main__':
     app.run(debug=True)
